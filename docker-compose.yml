@@ -1,0 +1,448 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 14 - Data Warehouse
+  postgres:
+    image: postgres:14
+    container_name: retail_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Airflow - Orchestration
+  airflow-webserver:
+    image: apache/airflow:2.8.0
+    container_name: retail_airflow_webserver
+    depends_on:
+      - postgres
+      - airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+      - AIRFLOW__WEBSERVER__SECRET_KEY=${AIRFLOW_WEBSERVER_SECRET_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - S3_BUCKET_RAW=${S3_BUCKET_RAW}
+      - S3_BUCKET_PROCESSED=${S3_BUCKET_PROCESSED}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - RETAILER_1_API_URL=${RETAILER_1_API_URL:-http://retailer1-api:5001}
+      - RETAILER_1_API_KEY=${RETAILER_1_API_KEY:-retailer1_api_key_123}
+      - RETAILER_2_API_URL=${RETAILER_2_API_URL:-http://retailer2-api:5002}
+      - RETAILER_2_API_KEY=${RETAILER_2_API_KEY:-retailer2_api_key_123}
+      - RETAILER_3_API_URL=${RETAILER_3_API_URL:-http://retailer3-api:5003}
+      - RETAILER_3_API_KEY=${RETAILER_3_API_KEY:-retailer3_api_key_123}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/config:/opt/airflow/config
+      - ./airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+      - ./ingestion:/opt/airflow/ingestion
+      - ./transformation:/opt/airflow/transformation
+      - ./data_quality:/opt/airflow/data_quality
+      - ./shared:/opt/airflow/shared
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT}:8080"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Wait for database to be initialized
+        until airflow db check >/dev/null 2>&1; do
+          echo "Waiting for Airflow database to be ready..."
+          sleep 2
+        done
+        # Start webserver
+        exec /usr/bin/dumb-init -- /entrypoint webserver
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - retail_network
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.0
+    container_name: retail_airflow_scheduler
+    depends_on:
+      - postgres
+      - airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - S3_BUCKET_RAW=${S3_BUCKET_RAW}
+      - S3_BUCKET_PROCESSED=${S3_BUCKET_PROCESSED}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - RETAILER_1_API_URL=${RETAILER_1_API_URL:-http://retailer1-api:5001}
+      - RETAILER_1_API_KEY=${RETAILER_1_API_KEY:-retailer1_api_key_123}
+      - RETAILER_2_API_URL=${RETAILER_2_API_URL:-http://retailer2-api:5002}
+      - RETAILER_2_API_KEY=${RETAILER_2_API_KEY:-retailer2_api_key_123}
+      - RETAILER_3_API_URL=${RETAILER_3_API_URL:-http://retailer3-api:5003}
+      - RETAILER_3_API_KEY=${RETAILER_3_API_KEY:-retailer3_api_key_123}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/config:/opt/airflow/config
+      - ./airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+      - ./ingestion:/opt/airflow/ingestion
+      - ./transformation:/opt/airflow/transformation
+      - ./data_quality:/opt/airflow/data_quality
+      - ./shared:/opt/airflow/shared
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Wait for database to be initialized
+        until airflow db check >/dev/null 2>&1; do
+          echo "Waiting for Airflow database to be ready..."
+          sleep 2
+        done
+        # Start scheduler
+        exec /usr/bin/dumb-init -- /entrypoint scheduler
+    healthcheck:
+      test: [ "CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"' ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - retail_network
+
+  airflow-init:
+    image: apache/airflow:2.8.0
+    container_name: retail_airflow_init
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_USERNAME}
+      - _AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AIRFLOW_DB=${AIRFLOW_DB}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/config:/opt/airflow/config
+      - ./airflow/plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Wait for PostgreSQL to be ready
+        echo "Waiting for PostgreSQL to be ready..."
+        until PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -c '\q' 2>/dev/null; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        echo "PostgreSQL is ready!"
+        # Create Airflow database if it doesn't exist
+        echo "Checking if Airflow database exists..."
+        if ! PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$${AIRFLOW_DB}'" | grep -q 1; then
+          echo "Creating Airflow database..."
+          PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d postgres -c "CREATE DATABASE $${AIRFLOW_DB}"
+        else
+          echo "Airflow database already exists."
+        fi
+        # Initialize Airflow database
+        echo "Initializing Airflow database schema..."
+        airflow db migrate
+        echo "Airflow database migration completed successfully!"
+        # Verify migration by checking for key tables
+        echo "Verifying database schema..."
+        if airflow db check >/dev/null 2>&1; then
+          echo "✅ Database schema verified!"
+        else
+          echo "⚠️  Database check failed, but continuing..."
+        fi
+        # Create admin user (ignore error if user already exists)
+        echo "Creating admin user..."
+        airflow users create \
+          --username $${_AIRFLOW_WWW_USER_USERNAME} \
+          --firstname $${_AIRFLOW_WWW_USER_FIRSTNAME:-Admin} \
+          --lastname $${_AIRFLOW_WWW_USER_LASTNAME:-User} \
+          --role Admin \
+          --email $${_AIRFLOW_WWW_USER_EMAIL:-admin@example.com} \
+          --password $${_AIRFLOW_WWW_USER_PASSWORD} || echo "Admin user already exists or creation failed (this is OK if user exists)"
+        echo "✅ Airflow initialization completed!"
+    networks:
+      - retail_network
+
+  # Retailer 1 - Simulated Retailer System
+  retailer1-postgres:
+    image: postgres:14
+    container_name: retailer1_postgres
+    environment:
+      POSTGRES_USER: ${RETAILER_1_DB_USER:-retailer1_user}
+      POSTGRES_PASSWORD: ${RETAILER_1_DB_PASSWORD:-retailer1_pass}
+      POSTGRES_DB: ${RETAILER_1_DB_NAME:-retailer1_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - retailer1_data:/var/lib/postgresql/data
+      - ./retailers/retailer1/database:/docker-entrypoint-initdb.d
+    ports:
+      - "${RETAILER_1_DB_PORT:-5433}:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${RETAILER_1_DB_USER:-retailer1_user} -d ${RETAILER_1_DB_NAME:-retailer1_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  retailer1-api:
+    build:
+      context: ./retailers/retailer1
+      dockerfile: Dockerfile
+    container_name: retailer1_api
+    depends_on:
+      - retailer1-postgres
+    environment:
+      - POSTGRES_HOST=retailer1-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${RETAILER_1_DB_NAME:-retailer1_db}
+      - POSTGRES_USER=${RETAILER_1_DB_USER:-retailer1_user}
+      - POSTGRES_PASSWORD=${RETAILER_1_DB_PASSWORD:-retailer1_pass}
+      - RETAILER_1_API_KEY=${RETAILER_1_API_KEY}
+    ports:
+      - "${RETAILER_1_API_PORT:-5001}:5001"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:5001/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Retailer 2 - Simulated Retailer System
+  retailer2-postgres:
+    image: postgres:14
+    container_name: retailer2_postgres
+    environment:
+      POSTGRES_USER: ${RETAILER_2_DB_USER:-retailer2_user}
+      POSTGRES_PASSWORD: ${RETAILER_2_DB_PASSWORD:-retailer2_pass}
+      POSTGRES_DB: ${RETAILER_2_DB_NAME:-retailer2_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - retailer2_data:/var/lib/postgresql/data
+      - ./retailers/retailer2/database:/docker-entrypoint-initdb.d
+    ports:
+      - "${RETAILER_2_DB_PORT:-5434}:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${RETAILER_2_DB_USER:-retailer2_user} -d ${RETAILER_2_DB_NAME:-retailer2_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  retailer2-api:
+    build:
+      context: ./retailers/retailer2
+      dockerfile: Dockerfile
+    container_name: retailer2_api
+    depends_on:
+      - retailer2-postgres
+    environment:
+      - POSTGRES_HOST=retailer2-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${RETAILER_2_DB_NAME:-retailer2_db}
+      - POSTGRES_USER=${RETAILER_2_DB_USER:-retailer2_user}
+      - POSTGRES_PASSWORD=${RETAILER_2_DB_PASSWORD:-retailer2_pass}
+      - RETAILER_2_API_KEY=${RETAILER_2_API_KEY}
+    ports:
+      - "${RETAILER_2_API_PORT:-5002}:5002"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:5002/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Retailer 3 - Simulated Retailer System
+  retailer3-postgres:
+    image: postgres:14
+    container_name: retailer3_postgres
+    environment:
+      POSTGRES_USER: ${RETAILER_3_DB_USER:-retailer3_user}
+      POSTGRES_PASSWORD: ${RETAILER_3_DB_PASSWORD:-retailer3_pass}
+      POSTGRES_DB: ${RETAILER_3_DB_NAME:-retailer3_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - retailer3_data:/var/lib/postgresql/data
+      - ./retailers/retailer3/database:/docker-entrypoint-initdb.d
+    ports:
+      - "${RETAILER_3_DB_PORT:-5435}:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${RETAILER_3_DB_USER:-retailer3_user} -d ${RETAILER_3_DB_NAME:-retailer3_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  retailer3-api:
+    build:
+      context: ./retailers/retailer3
+      dockerfile: Dockerfile
+    container_name: retailer3_api
+    depends_on:
+      - retailer3-postgres
+    environment:
+      - POSTGRES_HOST=retailer3-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${RETAILER_3_DB_NAME:-retailer3_db}
+      - POSTGRES_USER=${RETAILER_3_DB_USER:-retailer3_user}
+      - POSTGRES_PASSWORD=${RETAILER_3_DB_PASSWORD:-retailer3_pass}
+      - RETAILER_3_API_KEY=${RETAILER_3_API_KEY}
+    ports:
+      - "${RETAILER_3_API_PORT:-5003}:5003"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:5003/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Ingestion Service - Ingest data from 3 retailers to S3
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/ingestion/Dockerfile
+    container_name: retail_ingestion
+    depends_on:
+      - postgres
+      - retailer1-api
+      - retailer2-api
+      - retailer3-api
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - S3_BUCKET_RAW=${S3_BUCKET_RAW}
+      - RETAILER_1_API_URL=${RETAILER_1_API_URL:-http://retailer1-api:5001}
+      - RETAILER_1_API_KEY=${RETAILER_1_API_KEY:-retailer1_api_key_123}
+      - RETAILER_2_API_URL=${RETAILER_2_API_URL:-http://retailer2-api:5002}
+      - RETAILER_2_API_KEY=${RETAILER_2_API_KEY:-retailer2_api_key_123}
+      - RETAILER_3_API_URL=${RETAILER_3_API_URL:-http://retailer3-api:5003}
+      - RETAILER_3_API_KEY=${RETAILER_3_API_KEY:-retailer3_api_key_123}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./ingestion:/app/ingestion
+      - ./shared:/app/shared
+      - ./logs:/app/logs
+    networks:
+      - retail_network
+    profiles:
+      - services
+
+  # Transformation Service - Transform S3 data to star schema in PostgreSQL
+  transformation:
+    build:
+      context: .
+      dockerfile: docker/transformation/Dockerfile
+    container_name: retail_transformation
+    depends_on:
+      - postgres
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - S3_BUCKET_RAW=${S3_BUCKET_RAW}
+      - S3_BUCKET_PROCESSED=${S3_BUCKET_PROCESSED}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./transformation:/app/transformation
+      - ./shared:/app/shared
+      - ./logs:/app/logs
+    networks:
+      - retail_network
+    profiles:
+      - services
+
+  # Data Quality Service - Performs quality checks on transformed data
+  data-quality:
+    build:
+      context: .
+      dockerfile: docker/data_quality/Dockerfile
+    container_name: retail_data_quality
+    depends_on:
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./data_quality:/app/data_quality
+      - ./shared:/app/shared
+      - ./logs:/app/logs
+    networks:
+      - retail_network
+    profiles:
+      - services
+
+volumes:
+  postgres_data:
+  retailer1_data:
+  retailer2_data:
+  retailer3_data:
+  airflow_logs:
+
+
+networks:
+  retail_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv4: "true"
+      com.docker.network.enable_ipv6: "false"
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
