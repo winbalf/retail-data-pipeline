@@ -1,0 +1,100 @@
+{
+  "title": "Product Performance Dashboard",
+  "tags": [
+    "retail",
+    "products",
+    "performance"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Top 10 Products by Revenue",
+      "type": "barchart",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT product_name, total_revenue FROM get_top_products_by_revenue($__timeFrom()::date, $__timeTo()::date, 10, NULL) ORDER BY total_revenue DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Top Products by Quantity Sold",
+      "type": "barchart",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT product_name, total_quantity_sold FROM get_top_products_by_revenue($__timeFrom()::date, $__timeTo()::date, 10, NULL) ORDER BY total_quantity_sold DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Sales by Category (Monthly)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT TO_DATE(year::text || '-' || month::text || '-01', 'YYYY-MM-DD') as time, category, SUM(total_revenue) as revenue FROM mv_monthly_sales_by_category WHERE TO_DATE(year::text || '-' || month::text || '-01', 'YYYY-MM-DD') >= $__timeFrom()::date AND TO_DATE(year::text || '-' || month::text || '-01', 'YYYY-MM-DD') <= $__timeTo()::date GROUP BY year, month, category ORDER BY time",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line"
+          },
+          "unit": "currencyUSD"
+        }
+      }
+    }
+  ],
+  "time": {
+    "from": "now-1y",
+    "to": "now"
+  }
+}

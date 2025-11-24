@@ -90,6 +90,10 @@ def run_transformation(**context):
     if '/opt/airflow/shared' not in sys.path:
         sys.path.insert(0, '/opt/airflow/shared')
     
+    # Set database user credentials for transformation service (INSERT, UPDATE, SELECT permissions)
+    os.environ['POSTGRES_USER'] = os.getenv('TRANSFORMATION_DB_USER', 'transformation_user')
+    os.environ['POSTGRES_PASSWORD'] = os.getenv('TRANSFORMATION_DB_PASSWORD', 'transformation_password_123')
+    
     # Try to get date from previous task (ingestion) via XCom to ensure exact match
     # If not available (e.g., manual trigger of just this task), use context
     ti = context['ti']
@@ -127,6 +131,10 @@ def run_data_quality(**context):
         sys.path.insert(0, '/opt/airflow')
     if '/opt/airflow/shared' not in sys.path:
         sys.path.insert(0, '/opt/airflow/shared')
+    
+    # Set database user credentials for data quality service (SELECT only - read-only)
+    os.environ['POSTGRES_USER'] = os.getenv('DATA_QUALITY_DB_USER', 'data_quality_user')
+    os.environ['POSTGRES_PASSWORD'] = os.getenv('DATA_QUALITY_DB_PASSWORD', 'data_quality_password_123')
     
     # Try to get date from previous task (transformation) via XCom to ensure exact match
     # If not available (e.g., manual trigger of just this task), use context
@@ -167,6 +175,34 @@ def run_data_quality(**context):
     finally:
         sys.argv = original_argv
 
+def refresh_materialized_views(**context):
+    """Refresh all materialized views after data transformation and quality checks."""
+    import sys
+    import os
+    
+    # Add paths - need to add parent directory so materialized_views can be imported as a package
+    if '/opt/airflow' not in sys.path:
+        sys.path.insert(0, '/opt/airflow')
+    if '/opt/airflow/shared' not in sys.path:
+        sys.path.insert(0, '/opt/airflow/shared')
+    
+    # Set database user credentials for materialized views refresh (airflow_user with REFRESH permissions)
+    os.environ['POSTGRES_USER'] = os.getenv('AIRFLOW_DB_USER', 'airflow_user')
+    os.environ['POSTGRES_PASSWORD'] = os.getenv('AIRFLOW_DB_PASSWORD', 'airflow_password_123')
+    
+    print("🔄 Starting materialized views refresh...")
+    
+    # Import and run materialized views refresh
+    from materialized_views.main import main as refresh_views_main
+    
+    try:
+        results = refresh_views_main()
+        print(f"✅ Materialized views refresh completed successfully")
+        return results
+    except Exception as e:
+        print(f"❌ Error refreshing materialized views: {str(e)}")
+        raise
+
 # Task 1: Ingest data from all retailers to S3
 ingest_task = PythonOperator(
     task_id='ingest_retailers_to_s3',
@@ -188,6 +224,13 @@ data_quality_task = PythonOperator(
     dag=dag,
 )
 
+# Task 4: Refresh materialized views
+refresh_views_task = PythonOperator(
+    task_id='refresh_materialized_views',
+    python_callable=refresh_materialized_views,
+    dag=dag,
+)
+
 # Define task dependencies
-ingest_task >> transform_task >> data_quality_task
+ingest_task >> transform_task >> data_quality_task >> refresh_views_task
 

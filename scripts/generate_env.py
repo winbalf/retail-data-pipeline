@@ -30,6 +30,22 @@ AIRFLOW_WEBSERVER_PORT=8080
 AIRFLOW_FERNET_KEY={generate_fernet_key()}
 AIRFLOW_WEBSERVER_SECRET_KEY={generate_secret_key()}
 
+# Grafana Configuration
+GRAFANA_PORT=3000
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin
+
+# Apache Superset Configuration
+SUPERSET_PORT=8088
+SUPERSET_ADMIN_USER=admin
+SUPERSET_ADMIN_PASSWORD=admin
+SUPERSET_ADMIN_EMAIL=admin@example.com
+SUPERSET_ADMIN_FIRSTNAME=Admin
+SUPERSET_ADMIN_LASTNAME=User
+SUPERSET_SECRET_KEY={generate_secret_key()}
+SUPERSET_DB_USER=superset_user
+SUPERSET_DB_PASSWORD=superset_password_123
+
 # AWS Configuration
 AWS_ACCESS_KEY_ID=your_aws_access_key_id
 AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key

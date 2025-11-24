@@ -1,0 +1,31 @@
+# PostgreSQL Datasource Configuration for Superset
+# This file documents the connection string for the Retail Analytics database
+# You can add this datasource manually in Superset UI or use the API
+
+# Connection String Format:
+# postgresql://[user]:[password]@[host]:[port]/[database]
+
+# Example connection details:
+# Host: postgres (internal Docker network) or localhost (external)
+# Port: 5432
+# Database: retail_analytics
+# User: superset_user (or retail_user for read-only access)
+# Password: superset_password_123 (or your configured password)
+
+# SQLAlchemy URI:
+# postgresql://superset_user:superset_password_123@postgres:5432/retail_analytics
+
+# Available Tables:
+# - fact_sales (main fact table)
+# - dim_date (date dimension)
+# - dim_product (product dimension)
+# - dim_customer (customer dimension)
+# - dim_store (store dimension)
+# - dim_retailer (retailer dimension)
+# - mv_daily_sales_summary (materialized view)
+# - mv_monthly_sales_by_category (materialized view)
+
+# Note: Superset doesn't support YAML-based datasource provisioning like Grafana.
+# You'll need to add the datasource through the Superset UI or API after startup.
+# See README.md for instructions.
+

@@ -10,6 +10,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data/pgdata
+      # Passwords for role-based database users
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-airflow_password_123}
+      TRANSFORMATION_DB_PASSWORD: ${TRANSFORMATION_DB_PASSWORD:-transformation_password_123}
+      DATA_QUALITY_DB_PASSWORD: ${DATA_QUALITY_DB_PASSWORD:-data_quality_password_123}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:-grafana_password_123}
+      SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset_password_123}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d
@@ -62,6 +68,7 @@ services:
       - ./ingestion:/opt/airflow/ingestion
       - ./transformation:/opt/airflow/transformation
       - ./data_quality:/opt/airflow/data_quality
+      - ./materialized_views:/opt/airflow/materialized_views
       - ./shared:/opt/airflow/shared
     ports:
       - "${AIRFLOW_WEBSERVER_PORT}:8080"
@@ -106,6 +113,13 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      # User credentials for retail database operations (tasks will use these)
+      - AIRFLOW_DB_USER=airflow_user
+      - AIRFLOW_DB_PASSWORD=${AIRFLOW_DB_PASSWORD:-airflow_password_123}
+      - TRANSFORMATION_DB_USER=transformation_user
+      - TRANSFORMATION_DB_PASSWORD=${TRANSFORMATION_DB_PASSWORD:-transformation_password_123}
+      - DATA_QUALITY_DB_USER=data_quality_user
+      - DATA_QUALITY_DB_PASSWORD=${DATA_QUALITY_DB_PASSWORD:-data_quality_password_123}
       - RETAILER_1_API_URL=${RETAILER_1_API_URL:-http://retailer1-api:5001}
       - RETAILER_1_API_KEY=${RETAILER_1_API_KEY:-retailer1_api_key_123}
       - RETAILER_2_API_URL=${RETAILER_2_API_URL:-http://retailer2-api:5002}
@@ -120,6 +134,7 @@ services:
       - ./ingestion:/opt/airflow/ingestion
       - ./transformation:/opt/airflow/transformation
       - ./data_quality:/opt/airflow/data_quality
+      - ./materialized_views:/opt/airflow/materialized_views
       - ./shared:/opt/airflow/shared
     entrypoint: /bin/bash
     command:
@@ -393,8 +408,8 @@ services:
       - S3_BUCKET_PROCESSED=${S3_BUCKET_PROCESSED}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${TRANSFORMATION_DB_USER:-transformation_user}
+      - POSTGRES_PASSWORD=${TRANSFORMATION_DB_PASSWORD:-transformation_password_123}
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - ./transformation:/app/transformation
@@ -416,8 +431,8 @@ services:
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${DATA_QUALITY_DB_USER:-data_quality_user}
+      - POSTGRES_PASSWORD=${DATA_QUALITY_DB_PASSWORD:-data_quality_password_123}
       - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - ./data_quality:/app/data_quality
@@ -428,12 +443,168 @@ services:
     profiles:
       - services
 
+  # Grafana - Visualization and Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: retail_grafana
+    depends_on:
+      - postgres
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=
+      - GF_SERVER_ROOT_URL=http://localhost:${GRAFANA_PORT:-3000}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${GRAFANA_DB_USER:-grafana_user}
+      - POSTGRES_PASSWORD=${GRAFANA_DB_PASSWORD:-grafana_password_123}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Apache Superset - Business Intelligence and Analytics
+  superset:
+    build:
+      context: .
+      dockerfile: docker/superset/Dockerfile
+    container_name: retail_superset
+    depends_on:
+      - postgres
+      - superset-init
+    environment:
+      - SUPERSET_CONFIG_PATH=/app/superset_config/superset_config.py
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY:-your-super-secret-key-change-in-production-12345}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - SUPERSET_DB_USER=${SUPERSET_DB_USER:-superset_user}
+      - SUPERSET_DB_PASSWORD=${SUPERSET_DB_PASSWORD:-superset_password_123}
+      - POSTGRES_USER=${SUPERSET_DB_USER:-superset_user}
+      - POSTGRES_PASSWORD=${SUPERSET_DB_PASSWORD:-superset_password_123}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - SUPERSET_ADMIN_USER=${SUPERSET_ADMIN_USER:-admin}
+      - SUPERSET_ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:-admin}
+      - SUPERSET_ADMIN_EMAIL=${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+      - SUPERSET_ADMIN_FIRSTNAME=${SUPERSET_ADMIN_FIRSTNAME:-Admin}
+      - SUPERSET_ADMIN_LASTNAME=${SUPERSET_ADMIN_LASTNAME:-User}
+    volumes:
+      - superset_data:/app/superset_home
+      - ./superset/config:/app/superset_config
+      - ./superset/datasources:/app/superset_datasources
+    ports:
+      - "${SUPERSET_PORT:-8088}:8088"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8088/health 2>/dev/null || curl -f http://localhost:8088/ 2>/dev/null || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - retail_network
+
+  # Superset Init - Initialize Superset database and admin user
+  superset-init:
+    build:
+      context: .
+      dockerfile: docker/superset/Dockerfile
+    container_name: retail_superset_init
+    depends_on:
+      - postgres
+    environment:
+      - SUPERSET_CONFIG_PATH=/app/superset_config/superset_config.py
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY:-your-super-secret-key-change-in-production-12345}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - SUPERSET_DB_USER=${SUPERSET_DB_USER:-superset_user}
+      - SUPERSET_DB_PASSWORD=${SUPERSET_DB_PASSWORD:-superset_password_123}
+      - POSTGRES_USER=${SUPERSET_DB_USER:-superset_user}
+      - POSTGRES_PASSWORD=${SUPERSET_DB_PASSWORD:-superset_password_123}
+      - POSTGRES_DB=${POSTGRES_DB}
+      # Main PostgreSQL admin credentials (for checking database existence)
+      - POSTGRES_MAIN_USER=${POSTGRES_USER}
+      - POSTGRES_MAIN_PASSWORD=${POSTGRES_PASSWORD}
+      - SUPERSET_ADMIN_USER=${SUPERSET_ADMIN_USER:-admin}
+      - SUPERSET_ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:-admin}
+      - SUPERSET_ADMIN_EMAIL=${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+      - SUPERSET_ADMIN_FIRSTNAME=${SUPERSET_ADMIN_FIRSTNAME:-Admin}
+      - SUPERSET_ADMIN_LASTNAME=${SUPERSET_ADMIN_LASTNAME:-User}
+    volumes:
+      - superset_data:/app/superset_home
+      - ./superset/config:/app/superset_config
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Wait for PostgreSQL to be ready and superset database to exist
+        echo "Waiting for PostgreSQL to be ready..."
+        # Use main PostgreSQL admin user to check server status and database existence
+        MAIN_USER=$${POSTGRES_MAIN_USER}
+        MAIN_PASS=$${POSTGRES_MAIN_PASSWORD}
+        for i in $$(seq 1 90); do
+          # First check if PostgreSQL server is up (using main admin user)
+          if PGPASSWORD=$${MAIN_PASS} psql -h postgres -U $${MAIN_USER} -d postgres -c '\q' 2>/dev/null; then
+            echo "PostgreSQL server is up!"
+            # Check if superset database exists
+            DB_EXISTS=$$(PGPASSWORD=$${MAIN_PASS} psql -h postgres -U $${MAIN_USER} -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='superset'" 2>/dev/null | tr -d ' ')
+            if [ "$$DB_EXISTS" = "1" ]; then
+              echo "Superset database exists, testing connection with superset_user..."
+              # Try connecting with superset_user to superset database
+              if PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d superset -c '\q' 2>/dev/null; then
+                echo "✅ PostgreSQL and Superset database are ready!"
+                break
+              else
+                echo "Superset database exists but superset_user cannot connect yet... (attempt $$i/90)"
+              fi
+            else
+              echo "Waiting for superset database to be created by init scripts... (attempt $$i/90)"
+            fi
+          else
+            echo "Waiting for PostgreSQL server to start... (attempt $$i/90)"
+          fi
+          sleep 2
+        done
+        # Initialize Superset database
+        echo "Initializing Superset database..."
+        superset db upgrade || echo "Database upgrade completed"
+        echo "Superset database initialized!"
+        # Create admin user (create or reset password)
+        echo "Setting up admin user..."
+        superset fab create-admin \
+          --username $${SUPERSET_ADMIN_USER} \
+          --firstname $${SUPERSET_ADMIN_FIRSTNAME} \
+          --lastname $${SUPERSET_ADMIN_LASTNAME} \
+          --email $${SUPERSET_ADMIN_EMAIL} \
+          --password $${SUPERSET_ADMIN_PASSWORD} 2>&1 || \
+        (superset fab reset-password \
+          --username $${SUPERSET_ADMIN_USER} \
+          --password $${SUPERSET_ADMIN_PASSWORD} 2>&1 && echo "Admin password reset") || \
+        echo "Admin user already configured"
+        # Initialize Superset (this sets up permissions and roles)
+        echo "Initializing Superset permissions..."
+        superset init || echo "Superset already initialized"
+        echo "✅ Superset initialization completed!"
+    networks:
+      - retail_network
+
 volumes:
   postgres_data:
   retailer1_data:
   retailer2_data:
   retailer3_data:
   airflow_logs:
+  grafana_data:
+  superset_data:
 
 
 networks:

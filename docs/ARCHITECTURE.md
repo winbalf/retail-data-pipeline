@@ -97,7 +97,7 @@ s3://raw-bucket/
 - **Purpose**: Schedule and monitor data pipeline execution
 - **DAG**: `retail_data_pipeline`
   - Runs daily at 2 AM
-  - Sequential tasks: Ingest → Transform → Quality Check
+  - Sequential tasks: Ingest → Transform → Quality Check → Refresh Materialized Views
   - Retry logic: 2 retries with 5-minute delay
 
 **Task Dependencies**:
@@ -107,6 +107,8 @@ ingest_retailers_to_s3
 transform_s3_to_postgres
     ↓
 data_quality_check
+    ↓
+refresh_materialized_views
 ```
 
 ## Data Quality Considerations
@@ -134,7 +136,7 @@ data_quality_check
 2. **Incremental Loading**: Process only new/changed records
 3. **Parallel Processing**: Process retailers in parallel
 4. **Database Partitioning**: Partition fact_sales by date
-5. **Materialized Views**: Pre-aggregate common queries
+5. **Materialized Views**: ✅ Pre-aggregate common queries (6 views implemented)
 
 ## Security
 
@@ -204,7 +206,7 @@ data_quality_check
 ### Future Optimizations
 1. **Parallel Processing**: Multi-threaded ingestion
 2. **Incremental Loading**: Only process new data
-3. **Materialized Views**: Pre-compute aggregations
+3. **Materialized Views**: ✅ Pre-compute aggregations (6 views implemented, see `docs/MATERIALIZED_VIEWS.md`)
 4. **Columnar Storage**: Consider columnar format for S3
 5. **Caching**: Cache dimension lookups
 

@@ -165,36 +165,31 @@ tests/
 - Airflow's built-in email/Slack operators
 - ELK stack or CloudWatch for logs
 
-### 4. Materialized Views (MEDIUM PRIORITY)
+### 4. Materialized Views (MEDIUM PRIORITY) ✅
 
-**Current Status**: Not implemented
-- Mentioned in architecture docs as future enhancement
-- No pre-aggregated tables for common queries
+**Current Status**: ✅ Implemented
+- 6 materialized views created for common analytical queries
+- Automatic refresh integrated into Airflow DAG
+- Indexes added for optimal query performance
+- Comprehensive documentation available
 
-**What Needs to Be Done**:
-- [ ] Create materialized views for common analytical queries:
-  - Daily sales summary by retailer
-  - Monthly sales by product category
-  - Top products by revenue
-  - Sales trends over time
-- [ ] Set up refresh schedule (via Airflow or PostgreSQL cron)
-- [ ] Add indexes on materialized views if needed
-- [ ] Document available views for BI users
+**What's Been Done**:
+- [x] Create materialized views for common analytical queries:
+  - `mv_daily_sales_summary` - Daily sales summary by retailer
+  - `mv_monthly_sales_by_category` - Monthly sales by product category
+  - `mv_top_products_by_revenue` - Top products by revenue
+  - `mv_weekly_sales_trends` - Sales trends over time (weekly)
+  - `mv_quarterly_sales_summary` - Quarterly sales summary
+  - `mv_daily_sales_by_product` - Daily sales by product
+- [x] Set up refresh schedule (via Airflow DAG - runs after data quality checks)
+- [x] Add indexes on materialized views for optimal performance
+- [x] Document available views for BI users (see `docs/MATERIALIZED_VIEWS.md`)
 
-**Suggested Views**:
-```sql
-CREATE MATERIALIZED VIEW mv_daily_sales_summary AS
-SELECT 
-    d.date,
-    r.retailer_name,
-    COUNT(*) as transaction_count,
-    SUM(fs.total_amount) as total_revenue,
-    SUM(fs.quantity) as total_quantity
-FROM fact_sales fs
-JOIN dim_date d ON fs.date_id = d.date_id
-JOIN dim_retailer r ON fs.retailer_id = r.retailer_id
-GROUP BY d.date, r.retailer_name;
-```
+**Implementation Details**:
+- SQL file: `database/init/02_create_materialized_views.sql`
+- Refresh service: `materialized_views/refresh_views.py`
+- Airflow task: `refresh_materialized_views` (runs after data quality checks)
+- Documentation: `docs/MATERIALIZED_VIEWS.md`
 
 ### 5. Incremental Loading (MEDIUM PRIORITY)
 

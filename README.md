@@ -182,6 +182,27 @@ The project uses Docker Compose to orchestrate the following containers:
      - Checks referential integrity (foreign keys)
      - Validates data freshness
 
+### 9. **Grafana** (`grafana`)
+   - **Purpose**: Time-series visualization and operational dashboards
+   - **Port**: 3000 (configurable via `.env`)
+   - **Features**:
+     - Pre-configured PostgreSQL datasource
+     - Pre-built dashboards for retail analytics
+     - Time-series visualizations
+   - **Access**: `http://localhost:3000` (default: admin/admin)
+
+### 10. **Apache Superset** (`superset`)
+   - **Purpose**: Business intelligence and self-service analytics
+   - **Port**: 8088 (configurable via `.env`)
+   - **Features**:
+     - Modern, open-source BI platform
+     - SQL Lab for advanced queries
+     - Interactive dashboards
+     - Self-service analytics
+   - **Access**: `http://localhost:8088` (default: admin/admin)
+   - **Dependencies**: PostgreSQL (for metadata and data warehouse)
+   - **See**: [superset/README.md](superset/README.md) for detailed setup instructions
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -332,6 +353,28 @@ cd data_quality && python main.py 2024-01-15
 ```
 
 ## 📈 Connecting BI Tools
+
+### Apache Superset (Included)
+
+Superset is already configured and running! 
+
+1. **Access Superset UI**: `http://localhost:8088`
+2. **Login**: Default credentials are `admin/admin` (change in `.env`)
+3. **Add PostgreSQL Datasource**:
+   - Go to **Data** → **Databases** → **+ Database**
+   - SQLAlchemy URI: `postgresql://superset_user:superset_password_123@postgres:5432/retail_analytics`
+   - Test connection and save
+4. **Create Charts and Dashboards**: Explore your retail data!
+
+For detailed instructions, see [superset/README.md](superset/README.md)
+
+### Grafana (Included)
+
+Grafana is already configured with PostgreSQL datasource and pre-built dashboards.
+
+1. **Access Grafana UI**: `http://localhost:3000`
+2. **Login**: Default credentials are `admin/admin` (change in `.env`)
+3. **Dashboards**: Pre-configured dashboards are available in the Dashboards menu
 
 ### Amazon Athena
 

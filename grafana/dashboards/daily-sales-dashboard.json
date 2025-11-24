@@ -1,0 +1,128 @@
+{
+  "title": "Daily Sales Dashboard",
+  "tags": [
+    "retail",
+    "sales",
+    "daily"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Daily Revenue Trend",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT date as time, retailer_name, total_revenue FROM mv_daily_sales_summary WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY date",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "currencyUSD"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Daily Transaction Count",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT date as time, retailer_name, transaction_count FROM mv_daily_sales_summary WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY date",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Retailer Revenue Comparison (Last 7 Days)",
+      "type": "barchart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT retailer_name, total_revenue as revenue FROM get_retailer_performance(CURRENT_DATE - INTERVAL '7 days', CURRENT_DATE) ORDER BY total_revenue DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Today's Revenue by Retailer",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "Retail Analytics PostgreSQL"
+          },
+          "rawSql": "SELECT retailer_name, total_revenue FROM get_retailer_performance(CURRENT_DATE, CURRENT_DATE)",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  }
+}
